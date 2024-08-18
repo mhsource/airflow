@@ -4,7 +4,7 @@ from datetime import datetime
 
 # Defina uma função Python que será executada como tarefa
 def print_hello():
-    print("Hello, World!")
+    print("Hello, World man!")
     
 
 # Defina os parâmetros padrão da DAG
