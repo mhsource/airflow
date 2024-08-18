@@ -11,8 +11,8 @@ metadata:
   namespace: airflow
 type: Opaque
 data:
-  postgresql-password: cG9zdGdyZXNxcDEyMw== 
-  airflow-password: cmVkMTIzNDU= 
+  postgresql-password: cG9zdGdyZXNxcDEyMw==  # postgres123 em base64
+  airflow-password: cmVkMTIzNDU=             # red12345 em base64
 
 ---
 apiVersion: v1
@@ -95,43 +95,37 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: airflow-sync-dags
+  name: download-dags
   namespace: airflow
 spec:
-  schedule: "*/2 * * * *"  # A cada 5 minutos
+  schedule: "*/5 * * * *"  # Executa a cada 5 minutos
   jobTemplate:
     spec:
       template:
         spec:
           containers:
-          - name: sync-dags
-            image: public.ecr.aws/bitnami/git:latest  # Usando a imagem alpine com git
+          - name: download-dags
+            image: bitnami/aws-cli:latest
             volumeMounts:
             - name: airflow-dags
               mountPath: /opt/bitnami/airflow/dags
+            args:
+            - "s3"
+            - "sync"
+            - "s3://dagsairflowm"   # Substitua pelo seu bucket S3
+            - "/opt/bitnami/airflow/dags"  # Diretório local para salvar as DAGs
+            - "--delete"           # Remove arquivos locais que não estão mais no S3
             env:
-            - name: GITHUB_REPO
-              value: "github.com/mhsource/airflow.git"  # Substitua com o URL do seu repositório
-            - name: GITHUB_BRANCH
-              value: "main"  # Substitua com o branch desejado
-            - name: GITHUB_USERNAME
-              value: "mhsource"  # Substitua com o seu usuário
-            - name: GITHUB_TOKEN
-              value: "ghp_"
-            command:
-            - /bin/sh
-            - -c
-            - |
-              if [ -d "/opt/bitnami/airflow/dags/.git" ]; then
-                cd /opt/bitnami/airflow/dags && git pull origin $GITHUB_BRANCH
-              else
-                git clone -b $GITHUB_BRANCH https://$GITHUB_USERNAME:$GITHUB_TOKEN@$GITHUB_REPO /opt/bitnami/airflow/dags
-              fi
+            - name: AWS_ACCESS_KEY_ID
+              value: "AKI"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "Q"
           restartPolicy: OnFailure
           volumes:
           - name: airflow-dags
             persistentVolumeClaim:
-              claimName: airflow-dags-pvc  # PVC deve ser configurado para montar o diretório de DAGs
+              claimName: airflow-dags-pvc
+
 
 ---
 
@@ -192,6 +186,12 @@ spec:
               value: "red12345"
             - name: AIRFLOW_LOGGING_LOGGER_SERVICE_HOST
               value: "airflow-worker"
+            - name: AWS_ACCESS_KEY_ID
+              value: "AKI"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "Qy"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/bitnami/airflow/dags
@@ -255,6 +255,12 @@ spec:
               value: "red12345"
             - name: AIRFLOW_LOGGING_LOGGER_SERVICE_HOST
               value: "airflow-worker"
+            - name: AWS_ACCESS_KEY_ID
+              value: "AKI"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "Qy"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/bitnami/airflow/dags
@@ -314,6 +320,12 @@ spec:
               value: "airflow-web"
             - name: REDIS_PASSWORD
               value: "red12345"
+            - name: AWS_ACCESS_KEY_ID
+              value: "AKI"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "Qy"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
           volumeMounts:
             - name: airflow-dags
               mountPath: /opt/bitnami/airflow/dags
