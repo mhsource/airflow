@@ -1,0 +1,393 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: airflow
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-secret
+  namespace: airflow
+type: Opaque
+data:
+  postgresql-password: cG9zdGdyZXNxcDEyMw==  # postgres123 em base64
+  airflow-password: cmVkMTIzNDU=             # red12345 em base64
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-config
+  namespace: airflow
+data:
+  AIRFLOW__CORE__FERNET_KEY: 'dGhpc2lzbXl0ZXN0a2V5Zm9yZmVybmV0'
+  AIRFLOW__CORE__EXECUTOR: 'CeleryExecutor'
+  AIRFLOW__CORE__SQL_ALCHEMY_CONN: 'postgresql+psycopg2://airflow:postgres123@postgresql:5432/bitnami_airflow'
+  AIRFLOW__CELERY__BROKER_URL: 'redis://:red12345@redis:6379/0'
+  AIRFLOW__CELERY__RESULT_BACKEND: 'db+postgresql://airflow:postgres123@postgresql:5432/bitnami_airflow'
+  AIRFLOW__USERNAME: 'airflow'
+  AIRFLOW__PASSWORD: 'airflow'
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-dags
+  namespace: airflow
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 10Gi  # Ajuste conforme necessário
+  accessModes:
+    - ReadWriteMany  # Permite que vários pods leiam e escrevam ao mesmo tempo
+  hostPath:
+    path: "/run/desktop/mnt/host/c/Users/mateu/Projetos/airflow/dags"  # Substitua pelo caminho no host onde os logs serão armazenados
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-logs
+  namespace: airflow
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 10Gi  # Ajuste conforme necessário
+  accessModes:
+    - ReadWriteMany  # Permite que vários pods leiam e escrevam ao mesmo tempo
+  hostPath:
+    path: "/run/desktop/mnt/host/c/Users/mateu/Projetos/airflow/logs"  # Substitua pelo caminho no host onde os logs serão armazenados
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-dags-pvc
+  namespace: airflow
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-logs-pvc
+  namespace: airflow
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-web
+  namespace: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-web
+  template:
+    metadata:
+      labels:
+        app: airflow-web
+    spec:
+      initContainers:
+        - name: wait-for-postgresql
+          image: busybox
+          command: ['sh', '-c', 'until nc -z postgresql 5432; do echo waiting for postgresql; sleep 2; done;']
+        - name: wait-for-redis
+          image: busybox
+          command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+      containers:
+        - name: airflow-web
+          image: public.ecr.aws/bitnami/airflow:latest
+          env:
+            - name: AIRFLOW_FERNET_KEY
+              value: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+            - name: AIRFLOW_SECRET_KEY
+              value: "a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08="
+            - name: AIRFLOW_EXECUTOR
+              value: "CeleryExecutor"
+            - name: AIRFLOW_DATABASE_NAME
+              value: "bitnami_airflow"
+            - name: AIRFLOW_DATABASE_USERNAME
+              value: "airflow"
+            - name: AIRFLOW_DATABASE_PASSWORD
+              value: "postgres123"
+            - name: AIRFLOW_LOAD_EXAMPLES
+              value: "no"
+            - name: AIRFLOW_PASSWORD
+              value: "airflow"
+            - name: AIRFLOW_USERNAME
+              value: "airflow"
+            - name: AIRFLOW_EMAIL
+              value: "user@example.com"
+            - name: REDIS_PASSWORD
+              value: "red12345"
+            - name: AIRFLOW_LOGGING_LOGGER_SERVICE_HOST
+              value: "airflow-worker"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/bitnami/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/bitnami/airflow/logs
+          ports:
+            - containerPort: 8080
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      initContainers:
+        - name: wait-for-postgresql
+          image: busybox
+          command: ['sh', '-c', 'until nc -z postgresql 5432; do echo waiting for postgresql; sleep 2; done;']
+        - name: wait-for-redis
+          image: busybox
+          command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+      containers:
+        - name: airflow-scheduler
+          image: public.ecr.aws/bitnami/airflow-scheduler:latest
+          env:
+            - name: AIRFLOW_FERNET_KEY
+              value: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+            - name: AIRFLOW_SECRET_KEY
+              value: "a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08="
+            - name: AIRFLOW_EXECUTOR
+              value: "CeleryExecutor"
+            - name: AIRFLOW_DATABASE_NAME
+              value: "bitnami_airflow"
+            - name: AIRFLOW_DATABASE_USERNAME
+              value: "airflow"
+            - name: AIRFLOW_DATABASE_PASSWORD
+              value: "postgres123"
+            - name: AIRFLOW_LOAD_EXAMPLES
+              value: "no"
+            - name: AIRFLOW_WEBSERVER_HOST
+              value: "airflow-web"
+            - name: REDIS_PASSWORD
+              value: "red12345"
+            - name: AIRFLOW_LOGGING_LOGGER_SERVICE_HOST
+              value: "airflow-worker"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/bitnami/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/bitnami/airflow/logs
+          ports:
+            - containerPort: 8793
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-worker
+  namespace: airflow
+spec:
+  replicas: 1  # Ajuste o número de workers conforme necessário
+  selector:
+    matchLabels:
+      app: airflow-worker
+  template:
+    metadata:
+      labels:
+        app: airflow-worker
+    spec:
+      initContainers:
+        - name: wait-for-postgresql
+          image: busybox
+          command: ['sh', '-c', 'until nc -z postgresql 5432; do echo waiting for postgresql; sleep 2; done;']
+        - name: wait-for-redis
+          image: busybox
+          command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 2; done;']
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+      containers:
+        - name: airflow-worker
+          image: public.ecr.aws/bitnami/airflow-worker:latest
+          env:
+            - name: AIRFLOW_FERNET_KEY
+              value: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+            - name: AIRFLOW_SECRET_KEY
+              value: "a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08="
+            - name: AIRFLOW_EXECUTOR
+              value: "CeleryExecutor"
+            - name: AIRFLOW_DATABASE_NAME
+              value: "bitnami_airflow"
+            - name: AIRFLOW_DATABASE_USERNAME
+              value: "airflow"
+            - name: AIRFLOW_DATABASE_PASSWORD
+              value: "postgres123"
+            - name: AIRFLOW_WEBSERVER_HOST
+              value: "airflow-web"
+            - name: REDIS_PASSWORD
+              value: "red12345"
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/bitnami/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/bitnami/airflow/logs
+          ports:
+            - containerPort: 8793
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: public.ecr.aws/bitnami/redis:latest
+          ports:
+            - containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              value: red12345
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: public.ecr.aws/bitnami/postgresql:14
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_PASSWORD
+              value: postgres123
+            - name: POSTGRESQL_USERNAME
+              value: airflow
+            - name: POSTGRESQL_DATABASE
+              value: bitnami_airflow
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-web
+  namespace: airflow
+spec:
+  type: LoadBalancer
+  selector:
+    app: airflow-web
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-worker
+  namespace: airflow
+spec:
+  type: ClusterIP
+  selector:
+    app: airflow-worker
+  ports:
+    - protocol: TCP
+      port: 8793
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: airflow
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: 6379
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: airflow
+spec:
+  type: ClusterIP
+  selector:
+    app: postgresql
+  ports:
+    - protocol: TCP
+      port: 5432
