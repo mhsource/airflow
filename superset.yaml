@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metabase-deployment
+  labels:
+    app: metabase
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metabase
+  template:
+    metadata:
+      labels:
+        app: metabase
+    spec:
+      containers:
+      - name: metabase
+        image: metabase/metabase:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: MB_DB_TYPE
+          value: "h2"
+        - name: MB_DB_FILE
+          value: "/metabase-data/metabase.db"
+        - name: MB_PLUGINS_DIR
+          value: "/plugins"
+        volumeMounts:
+        - name: metabase-data
+          mountPath: /metabase-data
+        - name: metabase-plugins
+          mountPath: /plugins
+      volumes:
+      - name: metabase-data
+        persistentVolumeClaim:
+          claimName: metabase-pvc
+      - name: metabase-plugins
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metabase-service
+  labels:
+    app: metabase
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: metabase
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metabase-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
